@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+# Usage:
+#   ./list-traefik-domains.sh
+#   ./list-traefik-domains.sh --csv
+#   ./list-traefik-domains.sh --csv output.csv
+
+set -uo pipefail
+
+SAVE_CSV=false
+CSV_FILE="domains.csv"
+
+# -----------------------------
+# Parse arguments
+# -----------------------------
+if [[ "${1:-}" == "--csv" ]]; then
+    SAVE_CSV=true
+
+    if [[ -n "${2:-}" ]]; then
+        CSV_FILE="$2"
+    fi
+fi
+
+# -----------------------------
+# Display Header
+# -----------------------------
+printf "%-45s %s\n" "CONTAINER" "DOMAINS"
+printf "%-45s %s\n" "---------------------------------------------" "---------------------------------------------"
+
+# -----------------------------
+# Save CSV Header
+# -----------------------------
+if [[ "$SAVE_CSV" == true ]]; then
+    echo "container,domain" > "$CSV_FILE"
+fi
+
+# -----------------------------
+# Main Loop
+# -----------------------------
+docker ps -q | while read -r c; do
+
+    container=$(docker inspect -f '{{.Name}}' "$c" 2>/dev/null | sed 's#^/##')
+
+    domains=$(docker inspect "$c" 2>/dev/null \
+        | grep -oP 'Host\(`\K[^`]+(?=`\))' \
+        | sort -u || true)
+
+    if [[ -n "$domains" ]]; then
+
+        display_domains=$(echo "$domains" \
+            | sed 's#^#https://#' \
+            | paste -sd "," -)
+
+        printf "%-45s %s\n" "$container" "$display_domains"
+
+        if [[ "$SAVE_CSV" == true ]]; then
+            while read -r domain; do
+                [[ -z "$domain" ]] && continue
+                echo "$container,https://$domain" >> "$CSV_FILE"
+            done <<< "$domains"
+        fi
+    fi
+done
+
+# -----------------------------
+# Finish
+# -----------------------------
+if [[ "$SAVE_CSV" == true ]]; then
+    echo
+    echo "CSV saved to: $CSV_FILE"
+fi
